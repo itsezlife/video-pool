@@ -682,8 +682,7 @@ class VideoPool {
 
   bool _isAdapterVisiblyPlaying(PlayerAdapter adapter) {
     final state = adapter.stateNotifier.value;
-    return state.phase == PlaybackPhase.playing &&
-        state.position >= const Duration(milliseconds: 250);
+    return state.phase == PlaybackPhase.playing;
   }
 
   Future<void> _markEntryPlayingWhenReady(PoolEntry entry) async {
