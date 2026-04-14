@@ -695,7 +695,6 @@ class VideoPool {
 
     final notifier = entry.adapter.stateNotifier;
     final completer = Completer<void>();
-    Timer? timeout;
 
     void complete() {
       if (!completer.isCompleted) completer.complete();
@@ -703,6 +702,10 @@ class VideoPool {
 
     void listener() {
       final phase = notifier.value.phase;
+      if (_disposed || entry.isIdle) {
+        complete();
+        return;
+      }
       if (_isAdapterVisiblyPlaying(entry.adapter) ||
           phase == PlaybackPhase.error ||
           phase == PlaybackPhase.disposed) {
@@ -711,9 +714,9 @@ class VideoPool {
     }
 
     notifier.addListener(listener);
-    timeout = Timer(const Duration(milliseconds: 1200), complete);
+    // Evaluate immediately in case state is already updated.
+    listener();
     await completer.future;
-    timeout.cancel();
     notifier.removeListener(listener);
 
     if (_disposed || entry.isIdle) return;
@@ -727,7 +730,6 @@ class VideoPool {
       entry.lifecycleNotifier.value = LifecycleState.error;
       return;
     }
-    entry.lifecycleNotifier.value = LifecycleState.buffering;
   }
 
   /// Handles token events from the shared [DecoderBudget].
