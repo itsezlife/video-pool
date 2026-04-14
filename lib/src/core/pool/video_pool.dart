@@ -14,6 +14,7 @@ import '../lifecycle/lifecycle_policy.dart';
 import '../lifecycle/lifecycle_state.dart';
 import '../memory/memory_manager.dart';
 import '../memory/memory_pressure_level.dart';
+import '../models/playback_config.dart';
 import '../models/thermal_status.dart';
 import '../models/video_source.dart';
 import '../prediction/predictive_scroll_engine.dart';
@@ -482,6 +483,7 @@ class VideoPool {
       // placeholder surface before the first real frame is rendered.
       entry.lifecycleNotifier.value = LifecycleState.buffering;
       try {
+        await _applyPlaybackConfig(entry);
         await entry.adapter.play();
         await _markEntryPlayingWhenReady(entry);
       } catch (e, st) {
@@ -505,6 +507,28 @@ class VideoPool {
     // Notify widgets that reconciliation is complete so they can rebuild
     // and pick up newly assigned entries.
     reconciliationNotifier.value++;
+  }
+
+  /// Applies [VideoPoolConfig.defaultPlaybackConfig] to the adapter (volume,
+  /// speed, loop).
+  ///
+  /// Invoked before [PlayerAdapter.play] so settings apply after
+  /// [PlayerAdapter.swapSource] (which resets volume) and after demoting a
+  /// preloaded slot with volume 0.
+  Future<void> _applyPlaybackConfig(PoolEntry entry) async {
+    final PlaybackConfig c = config.defaultPlaybackConfig;
+    final double volume = c.mute ? 0.0 : c.volume;
+    try {
+      await entry.adapter.setVolume(volume);
+      await entry.adapter.setSpeed(c.speed);
+      await entry.adapter.setLooping(c.loop);
+    } catch (e, st) {
+      _logger.error(
+        'Playback config apply failed for entry ${entry.id}',
+        e,
+        st,
+      );
+    }
   }
 
   /// Release a player from its current assignment back to the idle pool.
@@ -656,6 +680,7 @@ class VideoPool {
         state == LifecycleState.ready) {
       try {
         entry.lifecycleNotifier.value = LifecycleState.buffering;
+        await _applyPlaybackConfig(entry);
         await entry.adapter.play();
         await _markEntryPlayingWhenReady(entry);
       } catch (e, st) {
