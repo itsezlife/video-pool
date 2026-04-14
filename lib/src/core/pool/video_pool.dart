@@ -1,13 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:video_pool/src/core/adapter/player_state.dart';
 
 import '../adapter/player_adapter.dart';
 import '../cache/bandwidth_estimator.dart';
+import '../cache/file_preload_manager.dart';
 import '../events/event_ring_buffer.dart';
 import '../events/metrics_snapshot.dart';
 import '../events/pool_event.dart';
-import '../cache/file_preload_manager.dart';
 import '../lifecycle/lifecycle_orchestrator.dart';
 import '../lifecycle/lifecycle_policy.dart';
 import '../lifecycle/lifecycle_state.dart';
@@ -38,7 +39,7 @@ typedef VideoSourceResolver = VideoSource? Function(int index);
 /// Usage:
 /// ```dart
 /// final pool = VideoPool(
-///   config: const VideoPoolConfig(),
+///   config: const CustomVideoPoolConfig(),
 ///   adapterFactory: (id) => MediaKitAdapter(id: id),
 ///   sourceResolver: (index) => videoSources[index],
 /// );
@@ -57,7 +58,7 @@ class VideoPool {
   ///
   /// [decoderBudget] enables cooperative multi-pool token sharing. When
   /// provided, the pool requests decoder tokens from the shared budget
-  /// instead of using [VideoPoolConfig.maxConcurrent] directly. This allows
+  /// instead of using [CustomVideoPoolConfig.maxConcurrent] directly. This allows
   /// multiple pools (e.g. main feed + PiP) to share hardware decoder slots.
   VideoPool({
     required this.config,
@@ -233,7 +234,7 @@ class VideoPool {
   ///
   /// Uses threshold state comparison to skip redundant reconciliations.
   /// Only reconciles when the primary index changes or a video crosses the
-  /// [VideoPoolConfig.visibilityPlayThreshold] boundary.
+  /// [CustomVideoPoolConfig.visibilityPlayThreshold] boundary.
   void onVisibilityChanged({
     required int primaryIndex,
     required Map<int, double> visibilityRatios,
@@ -262,11 +263,13 @@ class VideoPool {
 
     // Resolve any outstanding scroll prediction.
     if (_lastPredictedIndex != null) {
-      _emit(PredictionEvent(
-        predictedIndex: _lastPredictedIndex!,
-        confidence: 0.0, // resolved
-        actualIndex: primaryIndex,
-      ));
+      _emit(
+        PredictionEvent(
+          predictedIndex: _lastPredictedIndex!,
+          confidence: 0, // resolved
+          actualIndex: primaryIndex,
+        ),
+      );
       _lastPredictedIndex = null;
       _predictionStableCount = 0;
     }
@@ -277,8 +280,8 @@ class VideoPool {
 
     // Serialize reconciliation: wait for previous run to finish, then
     // only run if no newer call has superseded us.
-    _activeReconciliation = (_activeReconciliation ?? Future<void>.value())
-        .then((_) {
+    _activeReconciliation =
+        (_activeReconciliation ?? Future<void>.value()).then((_) {
       if (version == _reconciliationVersion && !_disposed) {
         return _reconcile(primaryIndex, visibilityRatios);
       }
@@ -325,10 +328,12 @@ class VideoPool {
     _lastPredictedIndex = prediction.targetIndex;
     _predictionStableCount++;
 
-    _emit(PredictionEvent(
-      predictedIndex: prediction.targetIndex,
-      confidence: prediction.confidence,
-    ));
+    _emit(
+      PredictionEvent(
+        predictedIndex: prediction.targetIndex,
+        confidence: prediction.confidence,
+      ),
+    );
 
     // Budget allocation based on confidence.
     if (prediction.confidence >= 0.7) {
@@ -379,13 +384,15 @@ class VideoPool {
       currentlyActive: currentlyActive,
     );
 
-    _emit(ReconcileEvent(
-      primaryIndex: primaryIndex,
-      playCount: plan.toPlay.length,
-      preloadCount: plan.toPreload.length,
-      pauseCount: plan.toPause.length,
-      releaseCount: plan.toRelease.length,
-    ));
+    _emit(
+      ReconcileEvent(
+        primaryIndex: primaryIndex,
+        playCount: plan.toPlay.length,
+        preloadCount: plan.toPreload.length,
+        pauseCount: plan.toPause.length,
+        releaseCount: plan.toRelease.length,
+      ),
+    );
 
     // Step 4: Execute the plan.
 
@@ -414,7 +421,9 @@ class VideoPool {
             await existingEntry.adapter.pause();
           } catch (e, st) {
             _logger.error(
-              'Pause preloaded entry failed for ${existingEntry.id}', e, st,
+              'Pause preloaded entry failed for ${existingEntry.id}',
+              e,
+              st,
             );
           }
           existingEntry.lifecycleNotifier.value = LifecycleState.paused;
@@ -469,9 +478,12 @@ class VideoPool {
           continue;
         }
       }
-      entry.lifecycleNotifier.value = LifecycleState.playing;
+      // Do not mark as playing immediately: some platforms report a black
+      // placeholder surface before the first real frame is rendered.
+      entry.lifecycleNotifier.value = LifecycleState.buffering;
       try {
         await entry.adapter.play();
+        await _markEntryPlayingWhenReady(entry);
       } catch (e, st) {
         _logger.error('Play failed for index $index', e, st);
         entry.lifecycleNotifier.value = LifecycleState.error;
@@ -499,7 +511,9 @@ class VideoPool {
   ///
   /// The adapter is NOT disposed — it remains available for reuse.
   Future<void> _releaseEntry(PoolEntry entry) async {
-    _logger.debug('Releasing entry ${entry.id} from index ${entry.assignedIndex}');
+    _logger.debug(
+      'Releasing entry ${entry.id} from index ${entry.assignedIndex}',
+    );
 
     // Unlock cache key before releasing.
     if (_filePreloadManager != null && entry.currentSource != null) {
@@ -541,20 +555,22 @@ class VideoPool {
       } else {
         // Fire-and-forget prefetch with bandwidth measurement.
         final sw = Stopwatch()..start();
-        _filePreloadManager.prefetch(source).then((path) {
+        await _filePreloadManager.prefetch(source).then((path) {
           sw.stop();
           if (path != null && !_disposed) {
             _bandwidthEstimator.addSample(
               2 * 1024 * 1024, // bytesToFetch default
               sw.elapsedMilliseconds,
             );
-            _emit(BandwidthSampleEvent(
-              bytesReceived: 2 * 1024 * 1024,
-              durationMs: sw.elapsedMilliseconds,
-              estimatedBytesPerSec:
-                  _bandwidthEstimator.estimatedBytesPerSec ?? 0,
-              concurrentDownloadsCount: 1,
-            ));
+            _emit(
+              BandwidthSampleEvent(
+                bytesReceived: 2 * 1024 * 1024,
+                durationMs: sw.elapsedMilliseconds,
+                estimatedBytesPerSec:
+                    _bandwidthEstimator.estimatedBytesPerSec ?? 0,
+                concurrentDownloadsCount: 1,
+              ),
+            );
           }
         });
       }
@@ -570,20 +586,24 @@ class VideoPool {
       await entry.adapter.swapSource(effectiveSource);
       sw.stop();
       _swapCount++;
-      _emit(SwapEvent(
-        entryId: entry.id,
-        fromIndex: -1,
-        toIndex: index,
-        durationMs: sw.elapsedMilliseconds,
-        isWarmStart: effectiveSource != source,
-      ));
+      _emit(
+        SwapEvent(
+          entryId: entry.id,
+          fromIndex: -1,
+          toIndex: index,
+          durationMs: sw.elapsedMilliseconds,
+          isWarmStart: effectiveSource != source,
+        ),
+      );
     } catch (e, st) {
       _logger.error('swapSource failed for entry ${entry.id}', e, st);
-      _emit(ErrorEvent(
-        code: 'SWAP_FAILED',
-        message: 'swapSource failed for entry ${entry.id}: $e',
-        fatal: false,
-      ));
+      _emit(
+        ErrorEvent(
+          code: 'SWAP_FAILED',
+          message: 'swapSource failed for entry ${entry.id}: $e',
+          fatal: false,
+        ),
+      );
       if (_filePreloadManager != null) {
         _filePreloadManager.unlockKey(source.cacheKey);
       }
@@ -635,8 +655,9 @@ class VideoPool {
     } else if (state == LifecycleState.paused ||
         state == LifecycleState.ready) {
       try {
+        entry.lifecycleNotifier.value = LifecycleState.buffering;
         await entry.adapter.play();
-        entry.lifecycleNotifier.value = LifecycleState.playing;
+        await _markEntryPlayingWhenReady(entry);
       } catch (e, st) {
         _logger.error('Play failed for index $index', e, st);
         entry.lifecycleNotifier.value = LifecycleState.error;
@@ -657,6 +678,57 @@ class VideoPool {
       if (entry.isIdle) return entry;
     }
     return null;
+  }
+
+  bool _isAdapterVisiblyPlaying(PlayerAdapter adapter) {
+    final state = adapter.stateNotifier.value;
+    return state.phase == PlaybackPhase.playing &&
+        state.position >= const Duration(milliseconds: 250);
+  }
+
+  Future<void> _markEntryPlayingWhenReady(PoolEntry entry) async {
+    if (_disposed || entry.isIdle) return;
+
+    if (_isAdapterVisiblyPlaying(entry.adapter)) {
+      entry.lifecycleNotifier.value = LifecycleState.playing;
+      return;
+    }
+
+    final notifier = entry.adapter.stateNotifier;
+    final completer = Completer<void>();
+    Timer? timeout;
+
+    void complete() {
+      if (!completer.isCompleted) completer.complete();
+    }
+
+    void listener() {
+      final phase = notifier.value.phase;
+      if (_isAdapterVisiblyPlaying(entry.adapter) ||
+          phase == PlaybackPhase.error ||
+          phase == PlaybackPhase.disposed) {
+        complete();
+      }
+    }
+
+    notifier.addListener(listener);
+    timeout = Timer(const Duration(milliseconds: 1200), complete);
+    await completer.future;
+    timeout.cancel();
+    notifier.removeListener(listener);
+
+    if (_disposed || entry.isIdle) return;
+
+    final phase = notifier.value.phase;
+    if (_isAdapterVisiblyPlaying(entry.adapter)) {
+      entry.lifecycleNotifier.value = LifecycleState.playing;
+      return;
+    }
+    if (phase == PlaybackPhase.error || phase == PlaybackPhase.disposed) {
+      entry.lifecycleNotifier.value = LifecycleState.error;
+      return;
+    }
+    entry.lifecycleNotifier.value = LifecycleState.buffering;
   }
 
   /// Handles token events from the shared [DecoderBudget].
@@ -700,15 +772,19 @@ class VideoPool {
     _thermalLevel = thermalLevel;
     _memoryPressure = memoryPressure;
 
-    _emit(ThrottleEvent(
-      thermalLevel: thermalLevel,
-      memoryPressure: memoryPressure,
-      effectiveMaxConcurrent: _orchestrator.computeEffectiveLimits(
-        config: config,
+    _emit(
+      ThrottleEvent(
         thermalLevel: thermalLevel,
         memoryPressure: memoryPressure,
-      ).maxConcurrent,
-    ));
+        effectiveMaxConcurrent: _orchestrator
+            .computeEffectiveLimits(
+              config: config,
+              thermalLevel: thermalLevel,
+              memoryPressure: memoryPressure,
+            )
+            .maxConcurrent,
+      ),
+    );
 
     _memoryManager.scaleBudget(memoryPressure);
 
@@ -723,8 +799,8 @@ class VideoPool {
       }
       // Serialize emergency flush through the reconciliation chain to
       // prevent concurrent modification of entries.
-      _activeReconciliation = (_activeReconciliation ?? Future<void>.value())
-          .then((_) {
+      _activeReconciliation =
+          (_activeReconciliation ?? Future<void>.value()).then((_) {
         if (!_disposed) return _emergencyFlush();
       });
     }
@@ -823,20 +899,23 @@ class VideoPool {
       toRemove.add(entry);
       _disposeCount++;
     }
-    for (final entry in toRemove) {
-      _entries.remove(entry);
-    }
+    toRemove.forEach(_entries.remove);
 
     // Release tokens for disposed entries back to the shared budget.
     if (_decoderBudget != null && toRemove.isNotEmpty) {
       _decoderBudget.releaseTokens(_poolId, toRemove.length);
-      _grantedTokens = (_grantedTokens - toRemove.length).clamp(0, _grantedTokens);
+      _grantedTokens = (_grantedTokens - toRemove.length).clamp(
+        0,
+        _grantedTokens,
+      );
     }
 
-    _emit(EmergencyFlushEvent(
-      survivorEntryId: primary?.id,
-      disposedCount: toRemove.length,
-    ));
+    _emit(
+      EmergencyFlushEvent(
+        survivorEntryId: primary?.id,
+        disposedCount: toRemove.length,
+      ),
+    );
 
     _logger.warning(
       'Emergency flush complete. Remaining entries: ${_entries.length}',

@@ -58,7 +58,8 @@ class _AppShellState extends State<_AppShell> {
   int _currentTab = 0;
 
   // Shared decoder budget for cooperative multi-pool.
-  final GlobalDecoderBudget _decoderBudget = GlobalDecoderBudget(totalTokens: 4);
+  final GlobalDecoderBudget _decoderBudget =
+      GlobalDecoderBudget(totalTokens: 4);
 
   // Shared pool for Feed + Insights tabs.
   VideoPool? _pool;
@@ -228,20 +229,18 @@ class _AppShellState extends State<_AppShell> {
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.play_circle_outline),
-            selectedIcon: Icon(Icons.play_circle_filled,
-                color: Color(0xFF7C4DFF)),
+            selectedIcon:
+                Icon(Icons.play_circle_filled, color: Color(0xFF7C4DFF)),
             label: 'Feed',
           ),
           NavigationDestination(
             icon: Icon(Icons.explore_outlined),
-            selectedIcon:
-                Icon(Icons.explore, color: Color(0xFF7C4DFF)),
+            selectedIcon: Icon(Icons.explore, color: Color(0xFF7C4DFF)),
             label: 'Discover',
           ),
           NavigationDestination(
             icon: Icon(Icons.insights_outlined),
-            selectedIcon:
-                Icon(Icons.insights, color: Color(0xFF7C4DFF)),
+            selectedIcon: Icon(Icons.insights, color: Color(0xFF7C4DFF)),
             label: 'Insights',
           ),
         ],
