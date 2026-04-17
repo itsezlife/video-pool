@@ -91,8 +91,7 @@ void main() {
         visibilityRatios: {0: 1.0},
       );
 
-      // Give the async reconciliation a tick to complete.
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final entry = pool.getEntryForIndex(0);
       expect(entry, isNotNull);
@@ -108,7 +107,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // At least one adapter should have had swapSource called.
       final swapped = createdAdapters
@@ -135,7 +134,7 @@ void main() {
         primaryIndex: 2,
         visibilityRatios: {2: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final stats = pool.statistics;
       // Primary (index 2) + preload (index 1, 3) = 3 active entries.
@@ -159,7 +158,7 @@ void main() {
         primaryIndex: 2,
         visibilityRatios: {2: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       expect(pool.getEntryForIndex(2), isNotNull);
 
@@ -168,7 +167,7 @@ void main() {
         primaryIndex: 5,
         visibilityRatios: {5: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Old indices should be released, new ones assigned.
       expect(pool.getEntryForIndex(5), isNotNull);
@@ -188,14 +187,14 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final hitsBeforeSecondCall = pool.statistics.cacheHits;
 
       // Use resumeLastState to force re-reconciliation with the same
       // input (bypasses threshold deduplication).
       pool.resumeLastState();
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       expect(pool.statistics.cacheHits, greaterThan(hitsBeforeSecondCall));
 
@@ -211,7 +210,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final swapsBefore = pool.statistics.swapCount;
 
@@ -220,7 +219,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 0.95}, // Still above 0.6 threshold
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // No new swaps should occur — reconciliation was skipped.
       expect(pool.statistics.swapCount, swapsBefore);
@@ -237,7 +236,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0, 1: 0.3}, // index 1 below threshold
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final statsBefore = pool.statistics;
 
@@ -246,7 +245,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0, 1: 0.7}, // index 1 now above 0.6
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Reconciliation should have run (playable set changed: {0} → {0,1}).
       expect(
@@ -266,7 +265,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       expect(pool.statistics.currentActive, 0);
     });
@@ -283,7 +282,7 @@ void main() {
         primaryIndex: 2,
         visibilityRatios: {2: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Mark index 2 entry as playing so it survives.
       final primaryEntry = pool.getEntryForIndex(2);
@@ -361,7 +360,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final entry = pool.getEntryForIndex(0);
       expect(entry, isNotNull);
@@ -541,7 +540,7 @@ void main() {
         primaryIndex: 2,
         visibilityRatios: {2: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final predictionEvents =
           events.whereType<PredictionEvent>().toList();
@@ -644,7 +643,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final reconcileEvents = events.whereType<ReconcileEvent>().toList();
       expect(reconcileEvents, isNotEmpty);
@@ -666,7 +665,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final swapEvents = events.whereType<SwapEvent>().toList();
       expect(swapEvents, isNotEmpty);
@@ -686,7 +685,7 @@ void main() {
         thermalLevel: ThermalLevel.serious,
         memoryPressure: MemoryPressureLevel.normal,
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final throttleEvents = events.whereType<ThrottleEvent>().toList();
       expect(throttleEvents, hasLength(1));
@@ -704,7 +703,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final m = pool.metrics;
       expect(m.totalEvents, greaterThan(0));

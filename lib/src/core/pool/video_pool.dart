@@ -202,6 +202,13 @@ class VideoPool {
   /// Guards against concurrent reconciliation.
   Future<void>? _activeReconciliation;
 
+  /// Await any in-flight reconciliation work.
+  ///
+  /// Useful for tests and for imperative integration points that need to
+  /// wait until the pool has finished reacting to the latest visibility
+  /// update (e.g. right after calling [resumeLastState]).
+  Future<void> settle() => _activeReconciliation ?? Future<void>.value();
+
   /// Monotonically increasing version to implement "latest wins" for rapid scroll.
   int _reconciliationVersion = 0;
 
@@ -479,11 +486,30 @@ class VideoPool {
           continue;
         }
       }
+      // IMPORTANT: This method is called often (including during resume).
+      // Avoid forcing a playing entry back into buffering — that causes UI flicker.
+      if (entry.lifecycleState == LifecycleState.playing) {
+        try {
+          await entry.adapter.play();
+        } catch (e, st) {
+          _logger.error('Play failed for index $index', e, st);
+          entry.lifecycleNotifier.value = LifecycleState.error;
+        }
+        continue;
+      }
+
       // Do not mark as playing immediately: some platforms report a black
       // placeholder surface before the first real frame is rendered.
-      entry.lifecycleNotifier.value = LifecycleState.buffering;
+      if (entry.lifecycleState != LifecycleState.buffering) {
+        entry.lifecycleNotifier.value = LifecycleState.buffering;
+      }
       try {
         await _applyPlaybackConfig(entry);
+        if (!config
+            .defaultPlaybackConfig.syncLifecycleNotifierWithStateNotifier) {
+          entry.lifecycleNotifier.value = LifecycleState.playing;
+        }
+
         await entry.adapter.play();
         await _markEntryPlayingWhenReady(entry);
       } catch (e, st) {
@@ -520,8 +546,13 @@ class VideoPool {
     final double volume = c.mute ? 0.0 : c.volume;
     try {
       await entry.adapter.setVolume(volume);
-      await entry.adapter.setSpeed(c.speed);
-      await entry.adapter.setLooping(c.loop);
+      // Avoid unnecessary awaits in the hot path when using defaults.
+      if (c.speed != 1.0) {
+        await entry.adapter.setSpeed(c.speed);
+      }
+      if (c.loop != true) {
+        await entry.adapter.setLooping(c.loop);
+      }
     } catch (e, st) {
       _logger.error(
         'Playback config apply failed for entry ${entry.id}',
@@ -679,7 +710,6 @@ class VideoPool {
     } else if (state == LifecycleState.paused ||
         state == LifecycleState.ready) {
       try {
-        entry.lifecycleNotifier.value = LifecycleState.buffering;
         await _applyPlaybackConfig(entry);
         await entry.adapter.play();
         await _markEntryPlayingWhenReady(entry);
@@ -712,6 +742,15 @@ class VideoPool {
 
   Future<void> _markEntryPlayingWhenReady(PoolEntry entry) async {
     if (_disposed || entry.isIdle) return;
+
+    if (entry.lifecycleState == LifecycleState.playing) {
+      return;
+    }
+
+    if (!config.defaultPlaybackConfig.syncLifecycleNotifierWithStateNotifier) {
+      entry.lifecycleNotifier.value = LifecycleState.playing;
+      return;
+    }
 
     if (_isAdapterVisiblyPlaying(entry.adapter)) {
       entry.lifecycleNotifier.value = LifecycleState.playing;
@@ -755,6 +794,13 @@ class VideoPool {
       entry.lifecycleNotifier.value = LifecycleState.error;
       return;
     }
+
+    // If the adapter never reported a "playing" phase but we attempted to play,
+    // avoid leaving the UI stuck in buffering forever.
+    entry.lifecycleNotifier.value = LifecycleState.playing;
+    _logger.warning(
+      'Timed out waiting for adapter to report playing for entry ${entry.id}',
+    );
   }
 
   /// Handles token events from the shared [DecoderBudget].

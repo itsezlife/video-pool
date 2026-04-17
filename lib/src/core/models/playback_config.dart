@@ -15,6 +15,7 @@ class PlaybackConfig {
     this.mute = false,
     this.volume = 1.0,
     this.speed = 1.0,
+    this.syncLifecycleNotifierWithStateNotifier = true,
   })  : assert(volume >= 0.0 && volume <= 1.0, 'volume must be 0.0–1.0'),
         assert(speed >= 0.5 && speed <= 2.0, 'speed must be 0.5–2.0');
 
@@ -32,18 +33,33 @@ class PlaybackConfig {
   /// Playback speed multiplier from 0.5 (half speed) to 2.0 (double speed).
   final double speed;
 
+  /// Whether [VideoPool] should synchronize its `lifecycleNotifier` with the
+  /// adapter `stateNotifier`.
+  ///
+  /// When true (default), the pool waits for the adapter to report a
+  /// visually-playing state before updating UI lifecycle state to `playing`.
+  /// This avoids black/placeholder frames on some platforms.
+  ///
+  /// When false, the pool marks entries as `playing` immediately after calling
+  /// `play()` to avoid UI flicker during resume/background/foreground cycles.
+  final bool syncLifecycleNotifierWithStateNotifier;
+
   /// Creates a copy of this [PlaybackConfig] with the given fields replaced.
   PlaybackConfig copyWith({
     bool? loop,
     bool? mute,
     double? volume,
     double? speed,
+    bool? syncLifecycleNotifierWithStateNotifier,
   }) {
     return PlaybackConfig(
       loop: loop ?? this.loop,
       mute: mute ?? this.mute,
       volume: volume ?? this.volume,
       speed: speed ?? this.speed,
+      syncLifecycleNotifierWithStateNotifier:
+          syncLifecycleNotifierWithStateNotifier ??
+              this.syncLifecycleNotifierWithStateNotifier,
     );
   }
 
@@ -54,13 +70,22 @@ class PlaybackConfig {
         other.loop == loop &&
         other.mute == mute &&
         other.volume == volume &&
-        other.speed == speed;
+        other.speed == speed &&
+        other.syncLifecycleNotifierWithStateNotifier ==
+            syncLifecycleNotifierWithStateNotifier;
   }
 
   @override
-  int get hashCode => Object.hash(loop, mute, volume, speed);
+  int get hashCode => Object.hash(
+        loop,
+        mute,
+        volume,
+        speed,
+        syncLifecycleNotifierWithStateNotifier,
+      );
 
   @override
   String toString() =>
-      'PlaybackConfig(loop: $loop, mute: $mute, volume: $volume, speed: $speed)';
+      'PlaybackConfig(loop: $loop, mute: $mute, volume: $volume, speed: $speed, '
+      'syncLifecycleNotifierWithStateNotifier: $syncLifecycleNotifierWithStateNotifier)';
 }
