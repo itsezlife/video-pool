@@ -80,6 +80,7 @@ class _VideoPoolScopeState extends State<VideoPoolScope>
   late AudioFocusManager _audioFocusManager;
   late VideoPoolPlatform _platform;
   StreamSubscription<DeviceStatus>? _statusSubscription;
+  bool _isDisposing = false;
 
   @override
   void initState() {
@@ -108,6 +109,11 @@ class _VideoPoolScopeState extends State<VideoPoolScope>
   Future<void> _startDeviceMonitoring() async {
     try {
       await _platform.startMonitoring();
+      if (_isDisposing || !mounted) {
+        // dispose() can run before startMonitoring completes.
+        _platform.stopMonitoring().ignore();
+        return;
+      }
       _statusSubscription = _platform.statusStream.listen(
         (status) {
           _pool.onDeviceStatusChanged(
@@ -138,18 +144,20 @@ class _VideoPoolScopeState extends State<VideoPoolScope>
 
   @override
   void dispose() {
-    _statusSubscription?.cancel();
+    _isDisposing = true;
+
+    final statusSubscription = _statusSubscription;
+    _statusSubscription = null;
+    if (statusSubscription != null) {
+      statusSubscription.cancel().ignore();
+    }
 
     // Flutter's State.dispose() is synchronous, but our managers are async.
     // Synchronously cancel subscriptions and mute entries to prevent
     // audio bleed, then fire-and-forget the async cleanup.
-    _audioFocusManager.dispose().catchError((_) {});
-    _pool.dispose().catchError((_) {});
-    try {
-      _platform.stopMonitoring();
-    } catch (_) {
-      // Ignore if monitoring was never started.
-    }
+    _audioFocusManager.dispose().ignore();
+    _pool.dispose().ignore();
+    _platform.stopMonitoring().ignore();
     super.dispose();
   }
 

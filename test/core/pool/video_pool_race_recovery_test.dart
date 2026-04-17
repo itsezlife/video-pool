@@ -48,6 +48,9 @@ void main() {
   VideoPool createPool({
     VideoPoolConfig config = const VideoPoolConfig(maxConcurrent: 3),
   }) {
+    config = config.copyWith(
+        defaultPlaybackConfig:
+            PlaybackConfig(syncLifecycleNotifierWithStateNotifier: false));
     return VideoPool(
       config: config,
       adapterFactory: (id) => createMockAdapter(),
@@ -74,7 +77,7 @@ void main() {
       );
 
       // Let everything settle.
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pool.settle();
 
       // Should not have thrown — pool is still usable (or properly flushed).
       pool.dispose();
@@ -88,7 +91,7 @@ void main() {
         primaryIndex: 2,
         visibilityRatios: {2: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Mark primary as playing.
       final entry = pool.getEntryForIndex(2);
@@ -102,7 +105,7 @@ void main() {
         );
       }
 
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await pool.settle();
 
       // Pool should still be functional (at least 1 entry kept).
       expect(pool.statistics.currentActive + pool.statistics.currentIdle,
@@ -131,7 +134,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final primaryEntry = pool.getEntryForIndex(0);
       primaryEntry?.lifecycleNotifier.value = LifecycleState.playing;
@@ -145,7 +148,7 @@ void main() {
         thermalLevel: ThermalLevel.nominal,
         memoryPressure: MemoryPressureLevel.terminal,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pool.settle();
 
       // Relieve pressure — if entries were flushed, recovery happens.
       // If warmup guard prevented flush, pool stays at 3 (still correct).
@@ -153,7 +156,7 @@ void main() {
         thermalLevel: ThermalLevel.nominal,
         memoryPressure: MemoryPressureLevel.normal,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pool.settle();
 
       // Pool should always have maxConcurrent entries.
       final totalEntries =
@@ -173,7 +176,7 @@ void main() {
         primaryIndex: 2,
         visibilityRatios: {2: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       final primaryEntry = pool.getEntryForIndex(2);
       primaryEntry?.lifecycleNotifier.value = LifecycleState.playing;
@@ -183,14 +186,14 @@ void main() {
         thermalLevel: ThermalLevel.nominal,
         memoryPressure: MemoryPressureLevel.terminal,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pool.settle();
 
       // Recover.
       pool.onDeviceStatusChanged(
         thermalLevel: ThermalLevel.nominal,
         memoryPressure: MemoryPressureLevel.normal,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 200));
+      await pool.settle();
 
       // After recovery + re-reconciliation, entries should be assigned
       // around the last known primary index.
@@ -208,7 +211,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
       pool.getEntryForIndex(0)?.lifecycleNotifier.value =
           LifecycleState.playing;
 
@@ -217,21 +220,21 @@ void main() {
         thermalLevel: ThermalLevel.nominal,
         memoryPressure: MemoryPressureLevel.terminal,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pool.settle();
 
       // Recover.
       pool.onDeviceStatusChanged(
         thermalLevel: ThermalLevel.nominal,
         memoryPressure: MemoryPressureLevel.normal,
       );
-      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await pool.settle();
 
       // Now scroll to a new index — recovered entries should be usable.
       pool.onVisibilityChanged(
         primaryIndex: 3,
         visibilityRatios: {3: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       expect(pool.getEntryForIndex(3), isNotNull);
 

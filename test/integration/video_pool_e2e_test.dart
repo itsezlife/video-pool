@@ -50,6 +50,9 @@ void main() {
     VideoPoolConfig config = const VideoPoolConfig(maxConcurrent: 3),
     DecoderBudget? decoderBudget,
   }) {
+    config = config.copyWith(
+        defaultPlaybackConfig:
+            PlaybackConfig(syncLifecycleNotifierWithStateNotifier: false));
     return VideoPool(
       config: config,
       adapterFactory: (id) => createMockAdapter(),
@@ -80,7 +83,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Initial reconciliation should have emitted a ReconcileEvent.
       expect(
@@ -105,7 +108,7 @@ void main() {
         primaryIndex: 2,
         visibilityRatios: {2: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Verify multiple ReconcileEvents exist (initial + scroll).
       final reconcileEvents = events.whereType<ReconcileEvent>().toList();
@@ -176,7 +179,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Verify entry is assigned to index 0.
       expect(pool.getEntryForIndex(0), isNotNull);
@@ -187,7 +190,7 @@ void main() {
         primaryIndex: -1,
         visibilityRatios: const {},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // After primary=-1, the reconciliation should release entries.
       final events = <PoolEvent>[];
@@ -198,7 +201,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       expect(pool.getEntryForIndex(0), isNotNull,
           reason: 'Pool should resume after tab switch back');
@@ -229,7 +232,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0, 1: 0.5, 2: 0.3},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Initial visibility should have triggered reconciliation.
       expect(
@@ -247,7 +250,7 @@ void main() {
         primaryIndex: 2,
         visibilityRatios: {2: 1.0, 3: 0.5},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // After scrolling, we should have additional reconciliation events.
       final reconcileCount = events.whereType<ReconcileEvent>().length;
@@ -316,7 +319,7 @@ void main() {
         primaryIndex: 0,
         visibilityRatios: {0: 1.0},
       );
-      await Future<void>.delayed(Duration.zero);
+      await pool.settle();
 
       // Verify ReconcileEvent was emitted.
       expect(
@@ -380,8 +383,7 @@ void main() {
         decoderBudget: budget,
       );
       final poolAAdapterCount = createdAdapters.length;
-      expect(poolAAdapterCount, 2,
-          reason: 'Pool A should get 2 tokens');
+      expect(poolAAdapterCount, 2, reason: 'Pool A should get 2 tokens');
       expect(poolA.statistics.totalCreated, 2);
       expect(poolA.statistics.currentIdle, 2);
 
