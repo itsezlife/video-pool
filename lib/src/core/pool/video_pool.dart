@@ -548,13 +548,8 @@ class VideoPool {
     final double volume = c.mute ? 0.0 : c.volume;
     try {
       await entry.adapter.setVolume(volume);
-      // Avoid unnecessary awaits in the hot path when using defaults.
-      if (c.speed != 1.0) {
-        await entry.adapter.setSpeed(c.speed);
-      }
-      if (c.loop != true) {
-        await entry.adapter.setLooping(c.loop);
-      }
+      await entry.adapter.setSpeed(c.speed);
+      await entry.adapter.setLooping(c.loop);
     } catch (e, st) {
       _logger.error(
         'Playback config apply failed for entry ${entry.id}',
