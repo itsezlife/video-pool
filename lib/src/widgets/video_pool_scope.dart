@@ -110,8 +110,6 @@ class _VideoPoolScopeState extends State<VideoPoolScope>
     try {
       await _platform.startMonitoring();
       if (_isDisposing || !mounted) {
-        // dispose() can run before startMonitoring completes.
-        _platform.stopMonitoring().ignore();
         return;
       }
       _statusSubscription = _platform.statusStream.listen(
