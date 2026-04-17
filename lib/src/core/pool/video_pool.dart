@@ -530,6 +530,8 @@ class VideoPool {
       }
     }
 
+    if (_disposed) return;
+
     // Notify widgets that reconciliation is complete so they can rebuild
     // and pick up newly assigned entries.
     reconciliationNotifier.value++;
